@@ -1,0 +1,1093 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Painel Financeiro</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#12263F" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="Financeiro" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+    <link rel="icon" href="icon-192.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="row">
+        <h1>Painel Financeiro</h1>
+        <select id="selMes" aria-label="Mês"></select>
+        <input
+          id="selAno"
+          type="number"
+          min="2020"
+          max="2100"
+          inputmode="numeric"
+          aria-label="Ano"
+        />
+      </div>
+    </header>
+    <nav class="tabs" aria-label="Seções"><div class="in" id="tabs"></div></nav>
+    <main id="app"></main>
+    <dialog id="dlg"><form id="frm" method="dialog"></form></dialog>
+
+    <script>
+      "use strict";
+      /* ================= dados ================= */
+      const KEY = "painel-financeiro-v1";
+      const MESES = [
+        "Janeiro",
+        "Fevereiro",
+        "Março",
+        "Abril",
+        "Maio",
+        "Junho",
+        "Julho",
+        "Agosto",
+        "Setembro",
+        "Outubro",
+        "Novembro",
+        "Dezembro",
+      ];
+      const MABR = [
+        "Jan",
+        "Fev",
+        "Mar",
+        "Abr",
+        "Mai",
+        "Jun",
+        "Jul",
+        "Ago",
+        "Set",
+        "Out",
+        "Nov",
+        "Dez",
+      ];
+      const DEFLISTS = {
+        casa: "Moradia;Fixa\nAlimentação;Variável\nEnergia;Fixa\nÁgua;Fixa\nInternet;Fixa\nTelefone;Fixa\nAssinaturas;Fixa\nSaúde;Variável\nEducação;Fixa\nLazer;Variável\nCompras;Variável\nOutros;Variável",
+        cart: "Compras;Variável\nAlimentação;Variável\nLazer;Variável\nSaúde;Variável\nEducação;Variável\nAssinaturas;Fixa\nOutros;Variável",
+        carro:
+          "Recarga;Variável\nSeguro;Fixa\nManutenção;Variável\nPneus;Variável\nPedágio;Variável\nEstacionamento;Variável\nLavagem;Variável\nIPVA;Fixa\nLicenciamento;Fixa\nFinanciamento;Fixa\nParcela do carro;Fixa\nConserto;Variável\nOutros;Variável",
+        ent: "Aplicativo;Profissional\nTrabalho particular;Profissional\nSalário;Profissional\nTransferência;Outras\nOutros;Outras",
+        cards: "Cartão 1\nCartão 2",
+        forma:
+          "Pix\nDinheiro\nDébito\nCartão de crédito\nBoleto\nTransferência\nDébito automático",
+      };
+      const now = new Date();
+      const blank = () => ({
+        casa: [],
+        cartoes: [],
+        carro: [],
+        recargas: [],
+        trabalho: [],
+        entradas: [],
+        previsto: {},
+        sel: { ano: now.getFullYear(), mes: now.getMonth() + 1 },
+        lists: { ...DEFLISTS },
+        view: "painel",
+      });
+      let S = (() => {
+        try {
+          const s = JSON.parse(localStorage.getItem(KEY));
+          if (s && s.casa)
+            return Object.assign(blank(), s, {
+              lists: Object.assign({}, DEFLISTS, s.lists || {}),
+            });
+        } catch (e) {}
+        return blank();
+      })();
+      const save = () => {
+        try {
+          localStorage.setItem(KEY, JSON.stringify(S));
+        } catch (e) {
+          alert(
+            "Não foi possível salvar no aparelho (armazenamento cheio ou bloqueado).",
+          );
+        }
+      };
+      const uid = () =>
+        Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const lines = (t) =>
+        String(t || "")
+          .split("\n")
+          .map((x) => x.trim())
+          .filter(Boolean);
+      const plist = (k) =>
+        lines(S.lists[k]).map((l) => {
+          const [n, t] = l.split(";");
+          return { n: n.trim(), t: (t || "Variável").trim() };
+        });
+      const names = (k) => plist(k).map((x) => x.n);
+      const tipoDe = (k, n) => {
+        const f = plist(k).find((x) => x.n === n);
+        return f ? f.t : "Variável";
+      };
+
+      /* ================= utilitários ================= */
+      const BRL = new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+      });
+      const N1 = new Intl.NumberFormat("pt-BR", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      });
+      const N0 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
+      const N4 = new Intl.NumberFormat("pt-BR", {
+        minimumFractionDigits: 4,
+        maximumFractionDigits: 4,
+      });
+      const brl = (v) => (v == null || isNaN(v) ? "—" : BRL.format(v));
+      const esc = (s) =>
+        String(s == null ? "" : s).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      const fdate = (s) => {
+        if (!s) return "";
+        const [y, m, d] = s.split("-");
+        return `${d}/${m}/${y}`;
+      };
+      const ym = (s) => {
+        const [y, m] = s.split("-").map(Number);
+        return [y, m];
+      };
+      const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
+      const num = (v) => (v === "" || v == null ? null : Number(v));
+      const $ = (s) => document.querySelector(s);
+
+      /* ================= cálculos ================= */
+      const cartIdx = (f) => {
+        const [y, m] = f.split("-").map(Number);
+        return y * 12 + m;
+      };
+      function cartAmt(e, y, m) {
+        const n = +e.parcelas || 1,
+          s = cartIdx(e.fatura),
+          k = y * 12 + m;
+        return k >= s && k < s + n ? (+e.total || 0) / n : 0;
+      }
+      function horasDe(e) {
+        if (!e.ini || !e.fim) return 0;
+        const [a, b] = e.ini.split(":").map(Number),
+          [c, d] = e.fim.split(":").map(Number);
+        return ((c * 60 + d - (a * 60 + b) + 1440) % 1440) / 60;
+      }
+      function kmDe(e) {
+        return e.kmi != null && e.kmf != null && e.kmi !== "" && e.kmf !== ""
+          ? Math.max(0, e.kmf - e.kmi)
+          : 0;
+      }
+      function met(y, m) {
+        const o = {
+          casa: 0,
+          cart: 0,
+          carro: 0,
+          rec: 0,
+          outros: 0,
+          ent: 0,
+          prof: 0,
+          horas: 0,
+          km: 0,
+          bruto: 0,
+          outrasrec: 0,
+          recq: 0,
+          kwh: 0,
+          apagar: 0,
+          cat: {},
+        };
+        const add = (l, v, t) => {
+          if (!v) return;
+          (o.cat[l] = o.cat[l] || { v: 0, t }).v += v;
+        };
+        S.casa.forEach((e) => {
+          const d = e.venc || e.data;
+          if (!d) return;
+          const [yy, mm] = ym(d);
+          if (yy !== y || mm !== m) return;
+          o.casa += +e.valor;
+          add(e.cat || "Sem categoria", +e.valor, tipoDe("casa", e.cat));
+          if (e.status === "Pendente" || e.status === "Atrasado")
+            o.apagar += +e.valor;
+        });
+        S.cartoes.forEach((e) => {
+          const v = cartAmt(e, y, m);
+          o.cart += v;
+          add("Cartões", v, "Variável");
+        });
+        S.carro.forEach((e) => {
+          if (!e.data) return;
+          const [yy, mm] = ym(e.data);
+          if (yy !== y || mm !== m) return;
+          if (e.cat === "Recarga") return;
+          o.carro += +e.valor;
+          add(
+            "Carro: " + (e.cat || "Sem categoria"),
+            +e.valor,
+            tipoDe("carro", e.cat),
+          );
+          if (e.status === "Pendente" || e.status === "Atrasado")
+            o.apagar += +e.valor;
+        });
+        S.recargas.forEach((e) => {
+          if (!e.data) return;
+          const [yy, mm] = ym(e.data);
+          if (yy !== y || mm !== m) return;
+          o.rec += +e.valor;
+          o.recq++;
+          o.kwh += +e.kwh || 0;
+          add("Recarga", +e.valor, "Variável");
+        });
+        S.trabalho.forEach((e) => {
+          if (!e.data) return;
+          const [yy, mm] = ym(e.data);
+          if (yy !== y || mm !== m) return;
+          o.horas += horasDe(e);
+          o.km += kmDe(e);
+          o.bruto += +e.bruto || 0;
+          o.outrasrec += +e.outras || 0;
+          o.outros += +e.outros || 0;
+          add("Outros custos (trabalho)", +e.outros || 0, "Variável");
+        });
+        S.entradas.forEach((e) => {
+          if (!e.data) return;
+          const [yy, mm] = ym(e.data);
+          if (yy !== y || mm !== m) return;
+          o.ent += +e.valor;
+          if (tipoDe("ent", e.cat) === "Profissional") o.prof += +e.valor;
+        });
+        return fin(o, y, m);
+      }
+      function fin(o, y, m) {
+        o.total = o.casa + o.cart + o.carro + o.rec + o.outros;
+        o.res = o.ent - o.total;
+        o.pct = o.ent > 0 ? o.total / o.ent : null;
+        o.custos = o.carro + o.rec + o.outros;
+        o.liq = o.bruto > 0 || o.horas > 0 ? o.bruto - o.custos : null;
+        o.bh = o.horas > 0 ? o.bruto / o.horas : null;
+        o.lh = o.horas > 0 && o.liq != null ? o.liq / o.horas : null;
+        o.bk = o.km > 0 ? o.bruto / o.km : null;
+        o.lk = o.km > 0 && o.liq != null ? o.liq / o.km : null;
+        o.kwhm = o.kwh > 0 ? o.rec / o.kwh : null;
+        o.recm = o.recq > 0 ? o.rec / o.recq : null;
+        const dias = m
+          ? new Date(y, m, 0).getDate()
+          : (new Date(y + 1, 0, 1) - new Date(y, 0, 1)) / 864e5;
+        o.dia = o.rec / dias;
+        return o;
+      }
+      function per(y, m) {
+        if (m > 0) return met(y, m);
+        const acc = {
+          casa: 0,
+          cart: 0,
+          carro: 0,
+          rec: 0,
+          outros: 0,
+          ent: 0,
+          prof: 0,
+          horas: 0,
+          km: 0,
+          bruto: 0,
+          outrasrec: 0,
+          recq: 0,
+          kwh: 0,
+          apagar: 0,
+          cat: {},
+        };
+        for (let i = 1; i <= 12; i++) {
+          const o = met(y, i);
+          for (const k in acc) {
+            if (k === "cat") {
+              for (const c in o.cat) {
+                (acc.cat[c] = acc.cat[c] || { v: 0, t: o.cat[c].t }).v +=
+                  o.cat[c].v;
+              }
+            } else acc[k] += o[k];
+          }
+        }
+        return fin(acc, y, 0);
+      }
+      function saldoAcum(y, m) {
+        let s = 0;
+        for (let i = 1; i <= (m || 12); i++) s += met(y, i).res;
+        return s;
+      }
+
+      /* ================= gráficos SVG ================= */
+      function nice(max, min) {
+        const r = max - min || 1,
+          raw = r / 4,
+          p = Math.pow(10, Math.floor(Math.log10(raw))),
+          f = raw / p;
+        const st = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+        return {
+          st,
+          lo: Math.floor(min / st) * st,
+          hi: Math.ceil(max / st) * st,
+        };
+      }
+      function chart(labels, series, type, fmt) {
+        const W = 600,
+          H = 250,
+          pl = 62,
+          pr = 8,
+          pt = 10,
+          pb = 30;
+        const all = series.flatMap((s) => s.v.map((x) => x || 0));
+        const mx = Math.max(0, ...all),
+          mn = Math.min(0, ...all);
+        if (mx === 0 && mn === 0)
+          return '<div class="empty">Sem dados ainda</div>';
+        const { st, lo, hi } = nice(mx, mn);
+        const y = (v) => pt + (H - pt - pb) * (1 - (v - lo) / (hi - lo));
+        const bw = (W - pl - pr) / labels.length;
+        let g = "";
+        for (let t = lo; t <= hi + 1e-9; t += st) {
+          g += `<line class="grid" x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}"/><text x="${pl - 5}" y="${y(t) + 5}" text-anchor="end">${fmt(t)}</text>`;
+        }
+        labels.forEach((l, i) => {
+          g += `<text x="${pl + bw * i + bw / 2}" y="${H - 8}" text-anchor="middle">${l}</text>`;
+        });
+        series.forEach((s, si) => {
+          if (type === "line") {
+            const pts = s.v
+              .map((v, i) => `${pl + bw * i + bw / 2},${y(v || 0)}`)
+              .join(" ");
+            g += `<polyline fill="none" stroke="${s.c}" stroke-width="2.2" points="${pts}"/>`;
+            s.v.forEach((v, i) => {
+              g += `<circle cx="${pl + bw * i + bw / 2}" cy="${y(v || 0)}" r="2.8" fill="${s.c}"/>`;
+            });
+          } else {
+            const w = (bw * 0.72) / series.length;
+            s.v.forEach((v, i) => {
+              if (!v) return;
+              const x = pl + bw * i + bw * 0.14 + w * si,
+                y0 = y(0),
+                y1 = y(v);
+              g += `<rect x="${x}" y="${Math.min(y0, y1)}" width="${w}" height="${Math.max(1, Math.abs(y1 - y0))}" rx="2" fill="${s.c}"/>`;
+            });
+          }
+        });
+        return (
+          `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img">${g}</svg>` +
+          (series.length > 1
+            ? `<div class="legend">${series.map((s) => `<span><i style="background:${s.c}"></i>${s.n}</span>`).join("")}</div>`
+            : "")
+        );
+      }
+      function hbars(items) {
+        items = items.filter((x) => x.v > 0);
+        if (!items.length) return '<div class="empty">Sem dados ainda</div>';
+        const mx = Math.max(...items.map((x) => x.v));
+        return `<div class="hb">${items.map((x) => `<span class="n">${esc(x.l)}</span><span class="t"><i style="width:${(x.v / mx) * 100}%"></i></span><span class="num">${brl(x.v)}</span>`).join("")}</div>`;
+      }
+
+      /* ================= telas ================= */
+      const TABS = [
+        ["painel", "Painel"],
+        ["casa", "Casa"],
+        ["cartoes", "Cartões"],
+        ["carro", "Carro"],
+        ["recargas", "Recargas"],
+        ["trabalho", "Trabalho"],
+        ["entradas", "Entradas"],
+        ["resumo", "Resumo"],
+        ["ajustes", "Ajustes"],
+      ];
+      function kpi(l, v, cls) {
+        return `<div class="k"><div class="l">${l}</div><div class="v num ${cls || ""}">${v}</div></div>`;
+      }
+      const sgn = (v) => (v == null ? "" : v < 0 ? "neg" : "");
+      function painel() {
+        const { ano, mes } = S.sel;
+        const P = per(ano, mes);
+        const Q = mes > 1 ? met(ano, mes - 1) : null;
+        const lab = mes ? `${MESES[mes - 1]} de ${ano}` : `Ano de ${ano}`;
+        const pct = P.pct == null ? 0 : Math.min(P.pct, 1) * 100;
+        const prev = mes
+          ? S.previsto[ano + "-" + mes]
+          : Object.keys(S.previsto)
+              .filter((k) => k.startsWith(ano + "-"))
+              .reduce((t, k) => t + (+S.previsto[k] || 0), 0) || undefined;
+        const vazio = !(
+          S.casa.length +
+          S.cartoes.length +
+          S.carro.length +
+          S.recargas.length +
+          S.trabalho.length +
+          S.entradas.length
+        );
+        let h = "";
+        h += `<div class="install" id="inst"><span>Instale o app na tela inicial para usar offline.</span><button class="btn" id="btnInst">Instalar</button></div>`;
+        h += `<section class="hero"><div class="lab">Resultado — ${lab}</div>
+    <div class="big num ${P.res < 0 ? "neg" : P.res > 0 ? "pos" : ""}">${brl(P.res)}</div>
+    <div class="bar" role="img" aria-label="Renda comprometida"><i class="${P.pct > 1 ? "over" : ""}" style="width:${pct}%"></i></div>
+    <div class="sub"><span>Entrou ${brl(P.ent)}</span><span>Saiu ${brl(P.total)}</span><span>${P.pct == null ? "Renda comprometida: sem entradas" : "Renda comprometida: " + N1.format(P.pct * 100) + "%"}</span></div></section>`;
+        if (vazio)
+          h += `<div class="box empty" style="margin-top:12px"><b>Tudo em branco por enquanto</b>Comece lançando uma entrada ou uma despesa nas abas acima. O painel se atualiza sozinho.</div>`;
+        h +=
+          `<h2 class="sec">Visão financeira</h2><div class="grid g6">` +
+          kpi("Entradas totais", brl(P.ent)) +
+          kpi("Despesas da casa", brl(P.casa)) +
+          kpi("Despesas com cartões", brl(P.cart)) +
+          kpi("Despesas do carro (sem recarga)", brl(P.carro)) +
+          kpi("Gastos com recarga", brl(P.rec)) +
+          kpi("Outras despesas (custos do trabalho)", brl(P.outros)) +
+          kpi("Total de despesas", brl(P.total)) +
+          kpi(
+            "Saldo disponível (acumulado no ano)",
+            brl(saldoAcum(ano, mes)),
+            sgn(saldoAcum(ano, mes)),
+          ) +
+          kpi("Receitas profissionais", brl(P.prof)) +
+          kpi("Outras receitas", brl(P.ent - P.prof)) +
+          kpi(
+            "A receber — previsão",
+            prev == null || prev === "" ? "—" : brl(+prev),
+          ) +
+          kpi("A pagar (pendente + atrasado)", brl(P.apagar)) +
+          `</div>`;
+        h +=
+          `<h2 class="sec">Trabalho como motorista</h2><div class="grid g6">` +
+          kpi("Horas trabalhadas", N1.format(P.horas) + " h") +
+          kpi("Km rodados", N0.format(P.km) + " km") +
+          kpi("Ganho bruto", brl(P.bruto)) +
+          kpi("Custos do carro", brl(P.custos)) +
+          kpi("Resultado líquido", brl(P.liq), sgn(P.liq)) +
+          kpi("Outras receitas (trabalho)", brl(P.outrasrec)) +
+          kpi("Ganho bruto / hora", brl(P.bh)) +
+          kpi("Ganho líquido / hora", brl(P.lh), sgn(P.lh)) +
+          kpi("Ganho bruto / km", brl(P.bk)) +
+          kpi("Ganho líquido / km", brl(P.lk), sgn(P.lk)) +
+          `</div>`;
+        h +=
+          `<h2 class="sec">Recarga do carro elétrico</h2><div class="grid g6">` +
+          kpi("Total gasto com recarga", brl(P.rec)) +
+          kpi("Quantidade de recargas", P.recq) +
+          kpi("Total de kWh", N1.format(P.kwh)) +
+          kpi(
+            "Custo médio por kWh",
+            P.kwhm == null ? "—" : "R$ " + N4.format(P.kwhm),
+          ) +
+          kpi("Custo médio por recarga", brl(P.recm)) +
+          kpi("Gasto diário médio", brl(P.dia)) +
+          `</div>`;
+        /* ranking */
+        const cats = Object.entries(P.cat)
+          .map(([l, x]) => ({ l, v: x.v, t: x.t }))
+          .sort((a, b) => b.v - a.v);
+        h += `<h2 class="sec">Maiores gastos — top 5 categorias</h2><div class="box">${hbars(cats.slice(0, 5).map((x) => ({ l: x.l, v: x.v })))}</div>`;
+        /* insights */
+        const fix = sum(
+            cats.filter((c) => c.t === "Fixa"),
+            (c) => c.v,
+          ),
+          vari = P.total - fix;
+        const ins = [];
+        if (cats.length)
+          ins.push(
+            `Maior categoria de gasto neste período: <b>${esc(cats[0].l)}</b> — ${brl(cats[0].v)}.`,
+          );
+        else ins.push("Ainda não há despesas lançadas neste período.");
+        if (Q) {
+          let best = null;
+          for (const [l, x] of Object.entries(P.cat)) {
+            const d = x.v - ((Q.cat[l] || {}).v || 0);
+            if (d > 0 && (!best || d > best.d)) best = { l, d };
+          }
+          ins.push(
+            best
+              ? `Categoria que mais aumentou em relação ao mês anterior: <b>${esc(best.l)}</b> (+${brl(best.d)}).`
+              : "Nenhuma categoria aumentou em relação ao mês anterior.",
+          );
+          const dc = P.cart - Q.cart;
+          ins.push(
+            `Os gastos com cartão ${dc >= 0 ? "aumentaram" : "diminuíram"} ${brl(Math.abs(dc))} em relação ao mês anterior.`,
+          );
+        } else
+          ins.push(
+            "Escolha um mês a partir de fevereiro para comparar com o mês anterior.",
+          );
+        if (P.total > 0)
+          ins.push(
+            `Despesas do carro (incluindo recarga) representam ${N1.format(((P.carro + P.rec) / P.total) * 100)}% das suas despesas.`,
+          );
+        ins.push(
+          P.pct != null
+            ? `Percentual da renda comprometido: ${N1.format(P.pct * 100)}%.`
+            : "Percentual da renda comprometido indisponível: não há entradas no período.",
+        );
+        ins.push(`Despesas fixas: ${brl(fix)} • variáveis: ${brl(vari)}.`);
+        h += `<h2 class="sec">Onde posso melhorar meu caixa?</h2><div class="box"><ul class="ins">${ins.map((x) => `<li>${x}</li>`).join("")}</ul><div class="hint" style="margin-top:6px">Apenas dados dos seus lançamentos — sem recomendações.</div></div>`;
+        /* gráficos */
+        const ms = Array.from({ length: 12 }, (_, i) => met(ano, i + 1));
+        const R = (v) => N0.format(v);
+        h += `<h2 class="sec">Gráficos</h2><div class="charts">
+  <div class="box ch"><h3>Entradas x saídas (ano)</h3>${chart(
+    MABR,
+    [
+      { n: "Entradas", c: "#17803D", v: ms.map((o) => o.ent) },
+      { n: "Saídas", c: "#C0392B", v: ms.map((o) => o.total) },
+    ],
+    "line",
+    R,
+  )}</div>
+  <div class="box ch"><h3>Gastos por categoria (período)</h3>${hbars(cats.slice(0, 8).map((x) => ({ l: x.l, v: x.v })))}</div>
+  <div class="box ch"><h3>Casa x cartões x carro x recarga (período)</h3>${hbars(
+    [
+      { l: "Casa", v: P.casa },
+      { l: "Cartões", v: P.cart },
+      { l: "Carro (sem recarga)", v: P.carro },
+      { l: "Recarga", v: P.rec },
+    ],
+  )}</div>
+  <div class="box ch"><h3>Gastos com recarga (ano)</h3>${chart(MABR, [{ n: "Recarga", c: "#0E7C7B", v: ms.map((o) => o.rec) }], "bar", R)}</div>
+  <div class="box ch"><h3>Ganho por hora (ano)</h3>${chart(
+    MABR,
+    [
+      { n: "Bruto", c: "#8DA2B8", v: ms.map((o) => o.bh) },
+      { n: "Líquido", c: "#12263F", v: ms.map((o) => o.lh) },
+    ],
+    "bar",
+    R,
+  )}</div>
+  <div class="box ch"><h3>Ganho por km (ano)</h3>${chart(
+    MABR,
+    [
+      { n: "Bruto", c: "#8DA2B8", v: ms.map((o) => o.bk) },
+      { n: "Líquido", c: "#0E7C7B", v: ms.map((o) => o.lk) },
+    ],
+    "bar",
+    (v) => N1.format(v),
+  )}</div></div>`;
+        return h;
+      }
+
+      /* ---- seções de lançamento ---- */
+      const SEC = {
+        casa: {
+          t: "Contas da Casa",
+          n: "Nova conta",
+          dk: (e) => e.venc || e.data,
+          f: [
+            ["data", "Data", "date", 1],
+            ["desc", "Descrição", "text", 1],
+            ["cat", "Categoria", "sel:casa", 1],
+            ["valor", "Valor (R$)", "money", 1],
+            ["forma", "Forma de pagamento", "sel:forma"],
+            ["venc", "Vencimento", "date"],
+            ["status", "Status", "sel:status"],
+            ["obs", "Observação", "text"],
+          ],
+          row: (e) => ({
+            a: e.desc,
+            b: `${fdate(e.data)} • ${e.cat || ""}${e.venc ? " • venc. " + fdate(e.venc) : ""}`,
+            v: brl(+e.valor),
+            s: e.status,
+          }),
+          tot: (e, y, m) => +e.valor,
+        },
+        cartoes: {
+          t: "Cartões",
+          n: "Nova compra/fatura",
+          f: [
+            ["cartao", "Nome do cartão", "sel:cards", 1],
+            ["compra", "Data da compra", "date"],
+            ["desc", "Descrição", "text", 1],
+            ["cat", "Categoria", "sel:cart", 1],
+            ["total", "Valor total da compra (R$)", "money", 1],
+            ["parcelas", "Nº de parcelas", "int", 1],
+            ["fatura", "Mês da fatura (1ª parcela)", "month", 1],
+            ["venc", "Data de vencimento", "date"],
+            ["status", "Status", "sel:status"],
+            ["obs", "Observação", "text"],
+          ],
+          hint: "Uma linha por compra. Ex.: R$ 1.200 em 6x → o app projeta 6 parcelas de R$ 200 nos meses seguintes. Fatura simples: 1 parcela.",
+          row: (e, y, m) => {
+            const n = +e.parcelas || 1,
+              s = cartIdx(e.fatura);
+            const k = m ? y * 12 + m : null;
+            const at =
+              k != null && k >= s && k < s + n
+                ? ` • parcela ${k - s + 1}/${n}`
+                : "";
+            return {
+              a: e.desc || e.cartao,
+              b: `${e.cartao} • ${e.cat || ""} • ${n}x de ${brl((+e.total || 0) / n)}${at}`,
+              v: brl(
+                m
+                  ? cartAmt(e, y, m)
+                  : sum([...Array(12).keys()], (i) => cartAmt(e, y, i + 1)),
+              ),
+              s: e.status,
+            };
+          },
+          tot: (e, y, m) =>
+            m
+              ? cartAmt(e, y, m)
+              : sum([...Array(12).keys()], (i) => cartAmt(e, y, i + 1)),
+          inP: (e, y, m) =>
+            m
+              ? cartAmt(e, y, m) > 0
+              : [...Array(12).keys()].some((i) => cartAmt(e, y, i + 1) > 0),
+        },
+        carro: {
+          t: "Carro",
+          n: "Nova despesa do carro",
+          dk: (e) => e.data,
+          f: [
+            ["data", "Data", "date", 1],
+            ["desc", "Descrição", "text", 1],
+            ["cat", "Categoria", "sel:carro", 1],
+            ["valor", "Valor (R$)", "money", 1],
+            ["forma", "Forma de pagamento", "sel:forma"],
+            ["status", "Status", "sel:status"],
+            ["obs", "Observação", "text"],
+          ],
+          hint: 'Recargas: lance na aba Recargas. Lançamentos "Recarga" aqui não entram nos totais, para não duplicar.',
+          row: (e) => ({
+            a: e.desc,
+            b: `${fdate(e.data)} • ${e.cat || ""}${e.cat === "Recarga" ? " (ignorado — use Recargas)" : ""}`,
+            v: brl(+e.valor),
+            s: e.status,
+          }),
+          tot: (e) => (e.cat === "Recarga" ? 0 : +e.valor),
+        },
+        recargas: {
+          t: "Recargas",
+          n: "Nova recarga",
+          dk: (e) => e.data,
+          f: [
+            ["data", "Data", "date", 1],
+            ["valor", "Valor pago (R$)", "money", 1],
+            ["kwh", "kWh carregados", "money", 1],
+            ["local", "Local da recarga", "text"],
+            ["obs", "Observação", "text"],
+          ],
+          row: (e) => ({
+            a: `${fdate(e.data)} • ${N1.format(+e.kwh || 0)} kWh`,
+            b: `${+e.kwh > 0 ? "R$ " + N4.format(e.valor / e.kwh) + "/kWh" : ""}${e.local ? " • " + e.local : ""}`,
+            v: brl(+e.valor),
+          }),
+          tot: (e) => +e.valor,
+        },
+        trabalho: {
+          t: "Trabalho",
+          n: "Novo dia de trabalho",
+          dk: (e) => e.data,
+          f: [
+            ["data", "Data", "date", 1],
+            ["ini", "Início", "time", 1],
+            ["fim", "Término", "time", 1],
+            ["kmi", "Km inicial", "money"],
+            ["kmf", "Km final", "money"],
+            ["bruto", "Ganho bruto (R$)", "money", 1],
+            ["outras", "Outras receitas (R$)", "money"],
+            ["outros", "Outros custos do dia (R$)", "money"],
+            ["obs", "Observações", "text"],
+          ],
+          hint: 'A recarga do dia entra pela aba Recargas. Em "Outros custos" lance pedágio/estacionamento do dia (ou na aba Carro — nunca nos dois).',
+          row: (e) => {
+            const h = horasDe(e),
+              k = kmDe(e);
+            return {
+              a: `${fdate(e.data)} • ${N1.format(h)} h • ${N0.format(k)} km`,
+              b: `Bruto/h ${h > 0 ? brl(e.bruto / h) : "—"} • Bruto/km ${k > 0 ? brl(e.bruto / k) : "—"}`,
+              v: brl(+e.bruto),
+            };
+          },
+          tot: (e) => +e.bruto,
+        },
+        entradas: {
+          t: "Entradas",
+          n: "Nova entrada",
+          dk: (e) => e.data,
+          f: [
+            ["data", "Data", "date", 1],
+            ["desc", "Descrição", "text", 1],
+            ["cat", "Categoria", "sel:ent", 1],
+            ["valor", "Valor (R$)", "money", 1],
+            ["origem", "Origem", "text"],
+            ["forma", "Forma de recebimento", "sel:forma"],
+            ["obs", "Observação", "text"],
+          ],
+          hint: "Lance aqui o dinheiro que realmente entrou. A aba Trabalho não soma nas entradas (evita contar duas vezes).",
+          row: (e) => ({
+            a: e.desc,
+            b: `${fdate(e.data)} • ${e.cat || ""}${e.origem ? " • " + e.origem : ""}`,
+            v: brl(+e.valor),
+          }),
+          tot: (e) => +e.valor,
+        },
+      };
+      function options(k) {
+        if (k === "casa") return names("casa");
+        if (k === "cart") return names("cart");
+        if (k === "carro") return names("carro");
+        if (k === "ent") return names("ent");
+        if (k === "cards") return lines(S.lists.cards);
+        if (k === "forma") return lines(S.lists.forma);
+        if (k === "status") return ["Pago", "Pendente", "Atrasado"];
+        return [];
+      }
+      function inPeriod(sec, e, y, m) {
+        const c = SEC[sec];
+        if (c.inP) return c.inP(e, y, m);
+        const d = c.dk(e);
+        if (!d) return false;
+        const [yy, mm] = ym(d);
+        return yy === y && (!m || mm === m);
+      }
+      function lista(sec) {
+        const c = SEC[sec],
+          { ano, mes } = S.sel;
+        const arr = S[sec]
+          .filter((e) => inPeriod(sec, e, ano, mes))
+          .sort((a, b) =>
+            String((c.dk ? c.dk(b) : b.fatura) || "").localeCompare(
+              String((c.dk ? c.dk(a) : a.fatura) || ""),
+            ),
+          );
+        const total = sum(arr, (e) => c.tot(e, ano, mes));
+        let h = `<div class="toolbar"><div class="tot">${c.t} — ${mes ? MESES[mes - 1] : "ano"} ${ano}<br><b class="num">${brl(total)}</b></div><button class="btn" data-new="${sec}">+ ${c.n}</button></div>`;
+        if (c.hint)
+          h += `<div class="hint" style="margin-bottom:10px">${c.hint}</div>`;
+        if (!arr.length)
+          h += `<div class="box empty"><b>Nenhum lançamento neste período</b>Toque em “${c.n}” para registrar o primeiro.</div>`;
+        else
+          h +=
+            `<div class="list">` +
+            arr
+              .map((e) => {
+                const r = c.row(e, ano, mes);
+                return `<button class="it" data-edit="${sec}:${e.id}"><div class="m"><b>${esc(r.a)}</b><small>${esc(r.b)}</small></div><div class="r num">${r.v}${r.s ? `<br><span class="badge b-${r.s}">${r.s}</span>` : ""}</div></button>`;
+              })
+              .join("") +
+            `</div>`;
+        if (sec === "recargas") {
+          const P = per(ano, mes);
+          h +=
+            `<h2 class="sec">Resumo do período</h2><div class="grid g6">` +
+            kpi("Total gasto", brl(P.rec)) +
+            kpi("Total de kWh", N1.format(P.kwh)) +
+            kpi("Nº de recargas", P.recq) +
+            kpi("Média por recarga", brl(P.recm)) +
+            kpi(
+              "Custo médio por kWh",
+              P.kwhm == null ? "—" : "R$ " + N4.format(P.kwhm),
+            ) +
+            kpi("Gasto diário médio", brl(P.dia)) +
+            `</div>`;
+        }
+        return h;
+      }
+      function resumo() {
+        const y = S.sel.ano;
+        const ms = Array.from({ length: 12 }, (_, i) => met(y, i + 1));
+        const Y = per(y, 0);
+        const rows = [
+          ["s", "Entradas"],
+          ["ent", "Entradas (realizadas)", "m"],
+          ["prof", "   Receitas profissionais", "m"],
+          ["prev", "A receber — previsão (editável)", "p"],
+          ["s", "Despesas"],
+          ["casa", "Contas da casa", "m"],
+          ["cart", "Cartões", "m"],
+          ["carro", "Carro (sem recarga)", "m"],
+          ["rec", "Recargas", "m"],
+          ["outros", "Outros gastos (trabalho)", "m"],
+          ["total", "TOTAL DE DESPESAS", "m", "t"],
+          ["res", "RESULTADO", "m", "t"],
+          ["pct", "% da renda comprometida", "%"],
+          ["s", "Trabalho como motorista"],
+          ["horas", "Horas trabalhadas", "h"],
+          ["km", "Km rodados", "k"],
+          ["bruto", "Ganho bruto", "m"],
+          ["custos", "Custos do carro", "m"],
+          ["liq", "Resultado líquido", "m", "t"],
+          ["bh", "Ganho bruto / hora", "m"],
+          ["lh", "Ganho líquido / hora", "m"],
+          ["bk", "Ganho bruto / km", "m"],
+          ["lk", "Ganho líquido / km", "m"],
+          ["s", "Recargas"],
+          ["recq", "Nº de recargas", "n"],
+          ["kwh", "Total de kWh", "h"],
+          ["kwhm", "Custo médio por kWh", "4"],
+          ["recm", "Custo médio por recarga", "m"],
+          ["dia", "Gasto diário médio", "m"],
+        ];
+        const f = (v, t) =>
+          v == null
+            ? "—"
+            : t === "%"
+              ? N1.format(v * 100) + "%"
+              : t === "h"
+                ? N1.format(v)
+                : t === "k"
+                  ? N0.format(v)
+                  : t === "n"
+                    ? v
+                    : t === "4"
+                      ? N4.format(v)
+                      : brl(v);
+        let h = `<h2 class="sec" style="margin-top:0">Resumo mensal — ${y}</h2><div class="tbl"><table><thead><tr><th>Indicador</th>${MABR.map((m) => `<th>${m}</th>`).join("")}<th>Ano</th></tr></thead><tbody>`;
+        rows.forEach((r) => {
+          if (r[0] === "s") {
+            h += `<tr class="s"><td colspan="14">${r[1]}</td></tr>`;
+            return;
+          }
+          if (r[2] === "p") {
+            const tot = sum(
+              Object.keys(S.previsto).filter((k) => k.startsWith(y + "-")),
+              (k) => S.previsto[k],
+            );
+            h += `<tr><td>${r[1]}</td>${ms.map((_, i) => `<td><input class="pv" inputmode="decimal" data-pv="${y}-${i + 1}" value="${S.previsto[y + "-" + (i + 1)] ?? ""}" aria-label="Previsão ${MABR[i]}"></td>`).join("")}<td class="num">${brl(tot)}</td></tr>`;
+            return;
+          }
+          const t = r[2];
+          h += `<tr class="${r[3] || ""}"><td>${esc(r[1])}</td>${ms.map((o) => `<td class="num ${(r[0] === "res" || r[0] === "liq") && o[r[0]] < 0 ? "neg" : ""}">${f(o[r[0]], t)}</td>`).join("")}<td class="num ${(r[0] === "res" || r[0] === "liq") && Y[r[0]] < 0 ? "neg" : ""}"><b>${f(Y[r[0]], t)}</b></td></tr>`;
+        });
+        return (
+          h +
+          `</tbody></table></div><div class="hint" style="margin-top:8px">Role para o lado para ver todos os meses. A linha de previsão guarda o que você espera receber.</div>`
+        );
+      }
+      function ajustes() {
+        const L = (k, t, h) =>
+          `<label class="f">${t}<textarea data-list="${k}" spellcheck="false">${esc(S.lists[k])}</textarea><span class="hint">${h}</span></label>`;
+        return `<h2 class="sec" style="margin-top:0">Seus dados</h2><div class="box"><p class="hint" style="margin-top:0">Os dados ficam salvos só neste aparelho. Faça backup de vez em quando.</p>
+   <div class="actions" style="justify-content:flex-start"><button class="btn" id="bExp">Exportar backup</button><button class="btn sec" id="bImp">Importar backup</button><button class="btn dan" id="bClr">Apagar tudo</button></div>
+   <input type="file" id="fImp" accept="application/json" hidden></div>
+  <h2 class="sec">Listas e categorias</h2><div class="box" style="display:grid;gap:12px">
+   ${L("casa", "Categorias — Casa", "Uma por linha: Nome;Fixa ou Variável")}${L("cart", "Categorias — Cartões", "Nome;Fixa ou Variável")}
+   ${L("carro", "Categorias — Carro", "Nome;Fixa ou Variável")}${L("ent", "Categorias — Entradas", "Nome;Profissional ou Outras")}
+   ${L("cards", "Cartões", "Um nome por linha (ex.: Nubank, Renner)")}${L("forma", "Formas de pagamento / recebimento", "Uma por linha")}
+   <div class="actions"><button class="btn" id="bLists">Salvar listas</button></div></div>`;
+      }
+
+      /* ================= formulário ================= */
+      function form(sec, id) {
+        const c = SEC[sec];
+        const e = id ? S[sec].find((x) => x.id === id) : null;
+        const f = $("#frm");
+        const val = (k) =>
+          e && e[k] != null
+            ? e[k]
+            : k === "data" && !e
+              ? new Date().toISOString().slice(0, 10)
+              : k === "fatura" && !e
+                ? new Date().toISOString().slice(0, 7)
+                : k === "parcelas" && !e
+                  ? 1
+                  : "";
+        const inp = ([k, l, t, req]) => {
+          let x;
+          if (t.startsWith("sel:")) {
+            const ops = options(t.slice(4));
+            x = `<select name="${k}" ${req ? "required" : ""}><option value="">Selecione…</option>${ops.map((o) => `<option ${val(k) === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+          } else if (t === "money")
+            x = `<input name="${k}" type="number" inputmode="decimal" step="0.01" min="0" value="${val(k)}" ${req ? "required" : ""}>`;
+          else if (t === "int")
+            x = `<input name="${k}" type="number" inputmode="numeric" step="1" min="1" max="60" value="${val(k)}" ${req ? "required" : ""}>`;
+          else
+            x = `<input name="${k}" type="${t === "text" ? "text" : t}" value="${esc(val(k))}" ${req ? "required" : ""}>`;
+          return `<label class="f">${l}${req ? " *" : ""}${x}</label>`;
+        };
+        f.innerHTML =
+          `<h3>${e ? "Editar" : "Novo"} — ${c.t}</h3>` +
+          c.f.map(inp).join("") +
+          `<div class="err" id="err" role="alert"></div>
+   <div class="actions">${e ? '<button type="button" class="btn dan" id="bDel">Excluir</button>' : ""}<button type="button" class="btn sec" id="bCan">Cancelar</button><button class="btn" type="submit">Salvar</button></div>`;
+        f.onsubmit = (ev) => {
+          ev.preventDefault();
+          const o = e ? { ...e } : { id: uid() };
+          for (const [k, , t] of c.f) {
+            let v = f.elements[k].value;
+            o[k] =
+              t === "money" || t === "int" ? (v === "" ? null : Number(v)) : v;
+          }
+          const er = [];
+          if (o.valor != null && o.valor < 0)
+            er.push("O valor não pode ser negativo.");
+          if (
+            sec === "trabalho" &&
+            o.kmi != null &&
+            o.kmf != null &&
+            o.kmf < o.kmi
+          )
+            er.push("O km final não pode ser menor que o km inicial.");
+          if (sec === "recargas" && !(o.kwh > 0))
+            er.push("Informe os kWh carregados (maior que zero).");
+          if (sec === "cartoes" && !(o.parcelas >= 1))
+            er.push("Informe o número de parcelas (1 ou mais).");
+          if (er.length) {
+            $("#err").textContent = er.join(" ");
+            return;
+          }
+          if (e) Object.assign(e, o);
+          else S[sec].push(o);
+          save();
+          $("#dlg").close();
+          render();
+        };
+        $("#bCan").onclick = () => $("#dlg").close();
+        if (e)
+          $("#bDel").onclick = () => {
+            if (confirm("Excluir este lançamento?")) {
+              S[sec] = S[sec].filter((x) => x.id !== id);
+              save();
+              $("#dlg").close();
+              render();
+            }
+          };
+        $("#dlg").showModal();
+      }
+
+      /* ================= navegação ================= */
+      function render() {
+        const v = S.view;
+        $("#selMes").value = S.sel.mes;
+        $("#selAno").value = S.sel.ano;
+        $("#tabs").innerHTML = TABS.map(
+          ([k, l]) =>
+            `<button data-tab="${k}" ${k === v ? 'aria-current="page"' : ""}>${l}</button>`,
+        ).join("");
+        $("#app").innerHTML =
+          v === "painel"
+            ? painel()
+            : v === "resumo"
+              ? resumo()
+              : v === "ajustes"
+                ? ajustes()
+                : lista(v);
+        if (deferred && v === "painel") {
+          $("#inst").style.display = "flex";
+          $("#btnInst").onclick = () => {
+            deferred.prompt();
+            deferred = null;
+            $("#inst").style.display = "none";
+          };
+        }
+      }
+      document.addEventListener("click", (e) => {
+        const t = e.target.closest("[data-tab]");
+        if (t) {
+          S.view = t.dataset.tab;
+          save();
+          render();
+          window.scrollTo(0, 0);
+          return;
+        }
+        const n = e.target.closest("[data-new]");
+        if (n) {
+          form(n.dataset.new);
+          return;
+        }
+        const ed = e.target.closest("[data-edit]");
+        if (ed) {
+          const [s, id] = ed.dataset.edit.split(":");
+          form(s, id);
+          return;
+        }
+        if (e.target.id === "bExp") {
+          const b = new Blob([JSON.stringify(S)], { type: "application/json" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(b);
+          a.download =
+            "painel-financeiro-backup-" +
+            new Date().toISOString().slice(0, 10) +
+            ".json";
+          a.click();
+        }
+        if (e.target.id === "bImp") $("#fImp").click();
+        if (
+          e.target.id === "bClr" &&
+          confirm(
+            "Apagar TODOS os lançamentos deste aparelho? Exporte um backup antes se quiser guardar.",
+          )
+        ) {
+          const l = S.lists;
+          S = blank();
+          S.lists = l;
+          save();
+          render();
+        }
+        if (e.target.id === "bLists") {
+          document
+            .querySelectorAll("[data-list]")
+            .forEach((t) => (S.lists[t.dataset.list] = t.value));
+          save();
+          alert("Listas salvas.");
+        }
+      });
+      document.addEventListener("change", (e) => {
+        if (e.target.id === "fImp") {
+          const r = new FileReader();
+          r.onload = () => {
+            try {
+              const d = JSON.parse(r.result);
+              if (!d.casa) throw 0;
+              S = Object.assign(blank(), d);
+              save();
+              render();
+              alert("Backup importado.");
+            } catch (x) {
+              alert("Arquivo de backup inválido.");
+            }
+          };
+          r.readAsText(e.target.files[0]);
+        }
+        if (e.target.dataset.pv) {
+          const v = e.target.value.replace(",", ".");
+          if (v === "" || isNaN(v)) delete S.previsto[e.target.dataset.pv];
+          else S.previsto[e.target.dataset.pv] = Math.max(0, +v);
+          save();
+          render();
+        }
+      });
+      $("#selMes").innerHTML =
+        MESES.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("") +
+        '<option value="0">Ano completo</option>';
+      $("#selMes").onchange = (e) => {
+        S.sel.mes = +e.target.value;
+        save();
+        render();
+      };
+      $("#selAno").onchange = (e) => {
+        const a = Math.round(+e.target.value);
+        if (a >= 2020 && a <= 2100) {
+          S.sel.ano = a;
+          save();
+          render();
+        } else e.target.value = S.sel.ano;
+      };
+      let deferred = null;
+      window.addEventListener("beforeinstallprompt", (e) => {
+        e.preventDefault();
+        deferred = e;
+        if (S.view === "painel") render();
+      });
+      if ("serviceWorker" in navigator)
+        window.addEventListener("load", () =>
+          navigator.serviceWorker.register("sw.js").catch(() => {}),
+        );
+      render();
+    </script>
+  </body>
+</html>

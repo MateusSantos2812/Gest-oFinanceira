@@ -1,0 +1,17 @@
+PAINEL FINANCEIRO (PWA) — como instalar
+========================================
+Arquivos: index.html, manifest.webmanifest, sw.js, icon-192.png, icon-512.png
+(mantenha todos juntos na mesma pasta)
+
+1) Coloque a pasta em qualquer hospedagem HTTPS gratuita:
+   - Netlify Drop (app.netlify.com/drop): arraste a pasta e pronto.
+   - GitHub Pages, Cloudflare Pages ou Vercel também servem.
+   (PWA só instala via HTTPS; abrir o index.html direto do arquivo funciona como página, mas sem instalar/offline.)
+
+2) Abra o endereço no celular:
+   - Android/Chrome: menu ⋮ > "Instalar app" (ou botão Instalar no próprio painel).
+   - iPhone/Safari: Compartilhar > "Adicionar à Tela de Início".
+
+3) Depois de instalado, funciona offline. Os dados ficam salvos SOMENTE no aparelho:
+   use Ajustes > Exportar backup de vez em quando.
+   Trocar de celular: exporte no antigo e importe no novo (Ajustes > Importar backup).
